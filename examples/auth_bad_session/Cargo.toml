@@ -1,0 +1,11 @@
+[package]
+name = "auth-bad-session"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[package.metadata.mir_logic]
+expected_bug = true
+category = "authentication_bypass"
+

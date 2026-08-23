@@ -1,0 +1,8 @@
+[package]
+name = "result-good"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[package.metadata.mir_logic]
+expected_bug = false
+category = "result_misuse"
