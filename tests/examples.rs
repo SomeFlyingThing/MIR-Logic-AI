@@ -17,6 +17,7 @@ fn authentication_bad_is_found_and_good_is_clean() {
     let options = ExtractOptions {
         call_depth: 3,
         keep_raw_mir: false,
+        target_dir: None,
     };
     let bad = simplify(
         &MirExtractor

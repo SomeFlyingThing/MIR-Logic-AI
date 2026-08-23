@@ -8,8 +8,11 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use mir_logic::{
     ExtractOptions, MirExtractor,
+    benchmark::{self, Ablation, BenchmarkConfig, BenchmarkModel, InputMode},
     dataset::{self, Label},
-    eval, heuristics,
+    eval,
+    generator::{GenerateConfig, generate_dataset},
+    heuristics,
     model::{AnalysisContext, LogicModel, MockModel, OpenAICompatibleModel},
     mutation::{MutationKind, mutate_file},
     report::{self, AnalysisReport, VerifiedFinding},
@@ -80,10 +83,48 @@ enum Command {
         #[arg(long)]
         mutation: String,
     },
+    Benchmark {
+        #[arg(long)]
+        dataset: PathBuf,
+        #[arg(long, default_value = "heuristic")]
+        model: String,
+        #[arg(long, default_value = "semantic-graph-only")]
+        input_mode: String,
+        #[arg(long)]
+        ablate: Vec<String>,
+        #[arg(long, default_value = ".mir-logic/benchmark-cache")]
+        cache_dir: PathBuf,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, default_value_t = 0.0)]
+        temperature: f64,
+        #[arg(long, value_enum, default_value = "text")]
+        format: Format,
+    },
 }
 
 #[derive(Subcommand)]
 enum DatasetCommand {
+    Generate {
+        #[arg(long)]
+        count: usize,
+        #[arg(long)]
+        seed: u64,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        split: bool,
+        #[arg(long, default_value_t = 100)]
+        batch_size: usize,
+        #[arg(long, default_value_t = 5)]
+        call_depth: usize,
+        #[arg(long)]
+        no_run_tests: bool,
+        #[arg(long)]
+        keep_workspaces: bool,
+        #[arg(long)]
+        overwrite: bool,
+    },
     Export {
         runs: PathBuf,
         #[arg(long)]
@@ -136,6 +177,7 @@ async fn main() -> Result<()> {
                 &ExtractOptions {
                     call_depth,
                     keep_raw_mir: true,
+                    target_dir: None,
                 },
             )?;
             match format {
@@ -225,6 +267,30 @@ async fn main() -> Result<()> {
             }
         }
         Command::Dataset { command } => match command {
+            DatasetCommand::Generate {
+                count,
+                seed,
+                output,
+                split,
+                batch_size,
+                call_depth,
+                no_run_tests,
+                keep_workspaces,
+                overwrite,
+            } => {
+                let manifest = generate_dataset(&GenerateConfig {
+                    count,
+                    seed,
+                    output,
+                    split,
+                    batch_size,
+                    call_depth,
+                    run_invariant_tests: !no_run_tests,
+                    keep_workspaces,
+                    overwrite,
+                })?;
+                println!("{}", serde_json::to_string_pretty(&manifest)?);
+            }
             DatasetCommand::Export { runs, output } => println!(
                 "exported {} records to {}",
                 dataset::export(&runs, &output)?,
@@ -277,6 +343,34 @@ async fn main() -> Result<()> {
                 mutation.parse::<MutationKind>()?
             )?)?
         ),
+        Command::Benchmark {
+            dataset,
+            model,
+            input_mode,
+            ablate,
+            cache_dir,
+            limit,
+            temperature,
+            format,
+        } => {
+            let report = benchmark::run(&BenchmarkConfig {
+                dataset,
+                model: model.parse::<BenchmarkModel>()?,
+                input_mode: input_mode.parse::<InputMode>()?,
+                ablations: ablate
+                    .iter()
+                    .map(|value| value.parse::<Ablation>())
+                    .collect::<Result<Vec<_>>>()?,
+                cache_dir,
+                limit,
+                temperature,
+            })
+            .await?;
+            match format {
+                Format::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+                _ => print!("{}", benchmark::terminal(&report)),
+            }
+        }
     }
     Ok(())
 }
@@ -288,6 +382,7 @@ fn extract_semantic(project: &Path, call_depth: usize) -> Result<mir_logic::Sema
             &ExtractOptions {
                 call_depth,
                 keep_raw_mir: false,
+                target_dir: None,
             },
         )?,
         call_depth,

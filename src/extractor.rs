@@ -20,6 +20,10 @@ use crate::graph::{
 pub struct ExtractOptions {
     pub call_depth: usize,
     pub keep_raw_mir: bool,
+    /// Optional shared Cargo target directory. Generated batches use unique
+    /// crate names, so sharing compiled dependencies is safe and considerably
+    /// faster than rebuilding them for every batch.
+    pub target_dir: Option<PathBuf>,
 }
 
 impl Default for ExtractOptions {
@@ -27,6 +31,7 @@ impl Default for ExtractOptions {
         Self {
             call_depth: 3,
             keep_raw_mir: true,
+            target_dir: None,
         }
     }
 }
@@ -67,11 +72,34 @@ impl MirExtractor {
         fs::create_dir_all(&dump_dir)?;
 
         let dump_arg = format!("-Zdump-mir-dir={}", dump_dir.display());
+        let target_dir = options
+            .target_dir
+            .clone()
+            .unwrap_or_else(|| dump_dir.join("target"));
+        if options.target_dir.is_some() {
+            // `cargo test` may have just built a generated batch. Cargo does
+            // not consider a changed dump directory reason enough to rerun
+            // rustc, so remove only this uniquely named generated package.
+            let clean = Command::new("cargo")
+                .args(["clean", "--manifest-path"])
+                .arg(&manifest)
+                .arg("--target-dir")
+                .arg(&target_dir)
+                .args(["-p", &crate_name])
+                .output()
+                .context("failed to prepare shared target directory for MIR extraction")?;
+            if !clean.status.success() {
+                bail!(
+                    "failed to refresh generated crate before MIR extraction:\n{}",
+                    String::from_utf8_lossy(&clean.stderr)
+                );
+            }
+        }
         let output = Command::new("cargo")
             .args(["rustc", "--manifest-path"])
             .arg(&manifest)
             .arg("--target-dir")
-            .arg(dump_dir.join("target"))
+            .arg(target_dir)
             .args(["--", "-Zdump-mir=built", "-Zdump-mir-exclude-pass-number"])
             .arg(dump_arg)
             .output()
