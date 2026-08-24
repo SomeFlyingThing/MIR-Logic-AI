@@ -1,5 +1,8 @@
 # MIR Logic-AI
 
+> [!NOTE]
+> This project was vibe-coded and is just a fun experiment. Please do not treat it as serious research or production-ready software.
+
 `mir-logic` is an experimental vertical prototype for one research question:
 
 > Does Rust MIR retain enough structural and semantic information for a model to notice suspicious logic-flow connections which are valid executions, but likely violate a program invariant?
